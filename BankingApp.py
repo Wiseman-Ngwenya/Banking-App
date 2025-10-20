@@ -1,16 +1,18 @@
 from datetime import datetime
 import random
 import os
+import json
+import hashlib
 
-class inside_bank:
+class BackEnd:
 
     def create_account(self):
         try:
-            with open("users.txt","x") as infile:
+            with open("StoredData/users.txt","x") as infile:
                 None
         except FileExistsError:
             username = input("Enter a username to use\n")
-            with open("users.txt","r") as users_infile:
+            with open("StoredData/users.txt","r") as users_infile:
                 usernames  = users_infile.readlines()
         clean_usernames = []
         for user in usernames:
@@ -21,76 +23,82 @@ class inside_bank:
             username = input("Enter a username to use\n")
         else:
             initial_deposit = input("Enter initial deposit\n")
-        pin_list = []
-        for i in range(5):
-            number = random.randint(0,9)
-            pin_list.append(number)
-        pin = (f"{pin_list[0]}{pin_list[1]}{pin_list[2]}{pin_list[3]}{pin_list[4]}")
-        with open("users.txt","a") as new_username_infile:
-            new_username_infile.write(f"{username}\n")
+        pin = str(random.randint(10000,99999))
+        salt = os.urandom(100)
+        hashed_pin = hashlib.sha256(salt+pin.encode()).hexdigest()
+        
+
         try:
-            os.makedirs(f"{username}_folder")
+            os.makedirs(f"StoredData/{username}_folder")
         except FileExistsError:
             None
-        with open (f"{username}_folder/credentials.txt","w") as credentials_infile,open(f"{username}_folder/balance.txt","x") as balance_infile:
-            credentials_infile.write(f"{username}\t{pin}")
-            balance_infile.write(f"{initial_deposit}")
+            
+        user_record = {"username":username,
+        "pin":hashed_pin,
+        "balance":initial_deposit,
+        "salt":salt.hex()}
+        with open (f"StoredData/{username}_folder/UserInfo.json","w") as info:
+            json.dump(user_record,info,indent = 4)
+        with open("StoredData/users.txt","a") as new_username_infile:
+            new_username_infile.write(f"{username}\n")
         print(f"You have succesfully built the account.\n.The user's username is {username} and PIN is {pin}")
 
-class customer:
+class FrontEnd:
     def __init__(self,username):
         self.username = username
-        with open(f"{self.username}_folder/balance.txt","r") as balance_infile:
-            self.balance = float(balance_infile.read())
-
-    def deposit(self):
-       amount = float(input("Enter amount to deposit\n"))   
-       while amount < 0:
-          amount = float(input("Invalid amount! re-enter amount\n"))
-       else:
-          self.balance += amount
-          print("")
-          print("You have successfully deposited E%.2f"%amount)
-          print("")
-          self.save_history("deposit",amount)
-        
-    def withdraw(self):
-        amount = float(input("Enter amount to withdraw\n"))
-        if amount > self.balance:
-            print("Insufficient funds!")
-        elif amount < 0:
-            print(" Invalid amount!")
-        else:
-           self.balance -= amount 
-           print("")
-           print("You have successfully withdrawn E%.2f"%amount)
-           print("")
-           self.save_history("withdrawal",amount)
-          
-    def check_balance(self):
-        print(f"Your balance is E{self.balance:02}")
-        print("")
+        with open(f"StoredData/{self.username}_folder/UserInfo.json","r") as balance_infile:
+            user_info = json.load(balance_infile)
+        self.user_info = user_info
+        self.balance = float(user_info["balance"])
+    def pause(self):
         e = str(input("Press 1 to EXIT\n"))
         while e != "1":
             e = str(input("Press 1 to Exit\n"))
+            
+    def deposit(self,amount):
+       while amount < 0:
+          return("Invalid amount! re-enter amount\n")
+       else:
+          self.balance += amount
+          self.saving_balance()
+          self.save_history("deposit",amount)
+      
+          return(f"\nYou have successfully deposited E{amount:.2f}\n")
+          
+        
+    def withdraw(self,amount):
+        if amount > self.balance:
+            return("Insufficient funds!")
+        elif amount < 0:
+            return(" Invalid amount!")
+        else:
+           self.balance -= amount
+           self.save_history("withdrawal",amount)
+           self.saving_balance()
+           return(f"You have successfully withdrawn E{amount:.2f}")
+           
+          
+    def check_balance(self):
+        return(f"Your balance is E{self.balance:.2f}\n")
+
      
     def save_history(self,transaction,amount):
         history = (f"{transaction},	{amount},	{self.balance},	{datetime.now().replace(microsecond=0)}\n")
         try:
-            with open(f"{self.username}_folder/history.txt","x") as history_outfile:
+            with open(f"StoredData/{self.username}_folder/history.txt","x") as history_outfile:
                 history_outfile.write(history)
         except FileExistsError:
-            with open(f"{self.username}_folder/history.txt","a") as history_outfile:
+            with open(f"StoredData/{self.username}_folder/history.txt","a") as history_outfile:
                 history_outfile.write(history)
-        e = input("Press 1 to EXIT\n")
-        while e != "1":
-            e = str(input("Press 1 to EXIT\n"))
+
       
     def history(self):
         history_list = []
-        with open(f"{self.username}_folder/history.txt","r") as history_infile:
-            history = history_infile.readlines()    
-            
+        try:
+            with open(f"StoredData/{self.username}_folder/history.txt","r") as history_infile:
+                history = history_infile.readlines()    
+        except FileNotFoundError:
+            return("History in not available")
         for line in history:
             clean_line = line.replace("\t"," ")
             history_list.append(clean_line)
@@ -101,9 +109,6 @@ class customer:
         except IndexError:
             for j in range(len(history_list)):
                 print((history_list[j]).replace(" ","\t"))
-        e = str(input("Press 1 to EXIT\n"))
-        while e != "1":
-            e = str(input("Press 1 to EXIT\n"))   
     
     def options(self):
         print("")
@@ -118,55 +123,50 @@ class customer:
         print("________________")
 
     def change_pin(self):
-        
         new_pin = input("Enter your new PIN\n")
         new_pin_2 = input("Confirm your new PIN\n")
         while new_pin != new_pin_2:
             print("PIN does not match the first one")
             new_pin = input("RE-Enter your new PIN\n")
             new_pin_2 = input("Confirm your new PIN\n")     
-      
-        with open(f"{self.username}_folder/credentials.txt","w") as outfile:
-            outfile.write(f"{self.username}\t{new_pin}")
+        hashed_pin = hashlib.sha256(bytes.fromhex(self.user_info["salt"])+new_pin.encode()).hexdigest()
+        self.user_info.update({"pin":hashed_pin})
+        with open(f"StoredData/{self.username}_folder/UserInfo.json","w") as outfile:
+            json.dump(self.user_info,outfile,indent=4)
         print("You have successfully changed your PIN") 
-        print("")           
-        e = str(input("Press 1 to EXIT\n"))
-        while e != "1":
-            e = str(input("Press 1 to EXIT\n"))              
+        print("")                      
    
     def saving_balance(self):
-        with open(f"{self.username}_folder/balance.txt","w") as outfile:
-            outfile.write(str(self.balance))
+        self.user_info.update({"balance":self.balance})
+        with open(f"StoredData/{self.username}_folder/UserInfo.json","w") as outfile:
+            json.dump(self.user_info,outfile,indent = 4)
             
     def main(self):
         while True:
             self.options()
             option = input("Enter your option\n")
             if option == "1":
-                self.deposit()
+                deposit = float(input("Enter amount to deposit\n"))
+                print(self.deposit(deposit))
+                self.pause()
             elif option == "2":
-                self.withdraw()
+                withdrawal = float(input("Enter amount to withdraw\n"))
+                print(self.withdraw(withdrawal))
+                self.pause()
             elif option == "3":
-                self.check_balance()
+                print(self.check_balance())
+                self.pause()
             elif option == "4":
-                self.history()
+                print(self.history())
+                self.pause()
             elif option == "5":
                 self.change_pin()
+                self.pause()
             elif option == "6":
                 print("Have a nice day!")
                 break
             else:
                 print("Invalid option")
-            self.saving_balance()
-
-            
-"""1.Debug the whole program"""
-            
-            
-            
             
 
-            
-account = customer("immanuel")
-account.main()
-
+           
